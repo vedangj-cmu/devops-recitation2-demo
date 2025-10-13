@@ -1,0 +1,58 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  name: 'Azure Pipelines'
+
+stages:
+- stage: Build
+  displayName: "Build Stage"
+  jobs:
+    - job: BuildHTML
+      displayName: "Minify HTML"
+      steps:
+        - task: NodeTool@0
+          inputs:
+            versionSpec: '18.x'
+          displayName: 'Use Node.js'
+
+        - script: |
+            mkdir dist
+            npx html-minifier-terser index.html -o dist/index.html --collapse-whitespace --remove-comments --minify-js true --minify-css true
+            echo "Minification complete. Generated dist/index.html"
+          displayName: "Minify HTML using html-minifier-terser"
+
+        - publish: dist
+          artifact: drop
+          displayName: "Publish minified HTML as artifact"
+
+- stage: Deploy
+  displayName: "Deploy to Azure Storage"
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+    - deployment: DeployStaticWebsite
+      environment: 'production'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - download: current
+                artifact: drop
+
+              - task: AzureCLI@2
+                inputs:
+                  azureSubscription: 'AzureServiceConnection'
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    echo "Uploading to Azure Storage..."
+                    az storage blob upload \
+                      --account-name devopsrecitation2website \
+                      --container-name '$web' \
+                      --file "$(Pipeline.Workspace)/drop/index.html" \
+                      --name 'index.html' \
+                      --overwrite true
+                    echo "Deployment Successful!!"

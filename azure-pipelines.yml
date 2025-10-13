@@ -29,30 +29,32 @@ stages:
           displayName: "Publish minified HTML as artifact"
 
 - stage: Deploy
-  displayName: "Deploy to Azure Storage"
+  displayName: "Deploy to GitHub Pages"
   dependsOn: Build
   condition: succeeded()
   jobs:
-    - deployment: DeployStaticWebsite
-      environment: 'production'
-      strategy:
-        runOnce:
-          deploy:
-            steps:
-              - download: current
-                artifact: drop
+    - job: DeployToGitHub
+      displayName: "Push index.html to gh-pages branch"
+      steps:
+        - checkout: self
+          persistCredentials: true
 
-              - task: AzureCLI@2
-                inputs:
-                  azureSubscription: 'AzureServiceConnection'
-                  scriptType: bash
-                  scriptLocation: inlineScript
-                  inlineScript: |
-                    echo "Uploading to Azure Storage..."
-                    az storage blob upload \
-                      --account-name devopsrecitation2website \
-                      --container-name '$web' \
-                      --file "$(Pipeline.Workspace)/drop/index.html" \
-                      --name 'index.html' \
-                      --overwrite true
-                    echo "Deployment Successful!!"
+        - download: current
+          artifact: drop
+
+        - script: |
+            echo "Cloning gh-pages branch..."
+            git fetch origin gh-pages || echo "No gh-pages branch yet"
+            git checkout gh-pages || git checkout --orphan gh-pages
+
+            echo "Copying built HTML..."
+            cp $(Pipeline.Workspace)/drop/index.html index.html
+
+            git config user.name "azure-pipelines-bot"
+            git config user.email "azure-pipelines@users.noreply.github.com"
+
+            git add index.html
+            git commit -m "Deploy: $(Build.BuildNumber)" || echo "No changes to commit"
+            git push origin gh-pages
+            echo "Deployment Successful!"
+          displayName: "Commit and Push to gh-pages"
